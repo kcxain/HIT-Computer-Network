@@ -37,6 +37,7 @@ int main()
             continue;
         }
         lpProxyParam->clientSocket = acceptSocket;
+        // 开启线程
         hThread = (HANDLE)_beginthreadex(NULL, 0,
                                          &ProxyThread,(LPVOID)lpProxyParam, 0, 0);
         CloseHandle(hThread);
@@ -82,13 +83,16 @@ BOOL InitSocket(){
     }
     ProxyServerAddr.sin_family = AF_INET;
     ProxyServerAddr.sin_port = htons(ProxyPort);
+    // 设置IP, 过滤用户
     ProxyServerAddr.sin_addr.S_un.S_addr = inet_addr("127.0.0.5");
-
+    //ProxyServerAddr.sin_addr.S_un.S_addr = inet_addr("127.0.0.1");
+    //ProxyServerAddr.sin_addr.S_un.S_addr = INADDR_ANY;
+    //绑定套接字
     if(bind(ProxyServer,(SOCKADDR*)&ProxyServerAddr,sizeof(SOCKADDR)) == SOCKET_ERROR){
         printf("绑定套接字失败\n");
         return FALSE;
     }
-    //ProxyServerAddr.sin_addr.S_un.S_addr = INADDR_ANY;
+
     if(listen(ProxyServer, SOMAXCONN) == SOCKET_ERROR){
         printf("监听端口%d 失败",ProxyPort);
         return FALSE;
@@ -121,6 +125,7 @@ unsigned int __stdcall ProxyThread(LPVOID lpParameter){
     HttpHeader *httpHeader;
     httpHeader = new HttpHeader();
     CacheBuffer = new char[recvSize + 1];
+    // 复制一套报文
     memset(CacheBuffer, 0, recvSize + 1);
     memcpy(CacheBuffer,Buffer,recvSize);
 
@@ -164,9 +169,11 @@ unsigned int __stdcall ProxyThread(LPVOID lpParameter){
         memcpy(tempBuffer, Buffer, strlen(Buffer));
         p = strtok(tempBuffer, delim);
         memcpy(num, &p[9], 3);
+        // 返回如果是304，则直接读缓存写入
         if (strcmp(num, "304") == 0)
             read_Cache(filename, Buffer);
         else
+            // 否则，重新写缓存
             write_Cache(httpHeader->url, Buffer);
     }
     else {

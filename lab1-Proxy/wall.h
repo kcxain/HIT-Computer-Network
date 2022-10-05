@@ -9,7 +9,7 @@
 #include<set>
 using namespace std;
 
-void ban_header(HttpHeader *httpHeader, char *buffer);
-void transfer_header(HttpHeader *httpHeader, char *buffer);
+void ban_header(HttpHeader *httpHeader, char *buffer);          // 拒绝访问
+void transfer_header(HttpHeader *httpHeader, char *buffer);     // 钓鱼
 
 #endif //LAB1_PROXY_WALL_H

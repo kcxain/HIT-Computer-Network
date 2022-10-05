@@ -7,11 +7,13 @@ BOOL query_Cache(char* buf, HttpHeader* httpHeader, char* filename) {
     char *field = "Date";
     char fileBuffer[MAXSIZE];
     char *DateBuffer;
+
     DateBuffer = (char*)malloc(MAXSIZE);
     ZeroMemory(DateBuffer, strlen(buf) + 1);
     memcpy(DateBuffer, buf, strlen(buf) + 1);
     generate_File(httpHeader->url, filename);
-    char date[DATE_SIZE];  //保存字段Date
+
+    char date[DATE_SIZE];
     ZeroMemory(date, DATE_SIZE);
     ZeroMemory(fileBuffer, MAXSIZE);
     FILE *in;
@@ -20,8 +22,10 @@ BOOL query_Cache(char* buf, HttpHeader* httpHeader, char* filename) {
         fread(fileBuffer, sizeof(char), MAXSIZE, in);
         fclose(in);
         printf("******\n");
+        //解析出date
         Parse_Date(fileBuffer, field, date);
         printf("date: %s\n", date);
+        //根据date构造HTTP header
         generate_HTTP(buf, date);
         return TRUE;
     }
@@ -32,11 +36,13 @@ void write_Cache(char *url, char *buf) {
     ZeroMemory(num, 10);
     ZeroMemory(tempBuffer, MAXSIZE + 1);
     memcpy(tempBuffer, buf, strlen(buf));
-    char *p = strtok(tempBuffer, delim);//提取第一行
+    char *p = strtok(tempBuffer, delim);
     memcpy(num, &p[9], 3);
-    if (strcmp(num, "200") == 0) {  //判断状态码是否为200
+
+    //状态码为200，才写入
+    if (strcmp(num, "200") == 0) {
         //printf("url : %s\n", url);
-        char filename[100] = { 0 };  // 构造文件名
+        char filename[100] = { 0 };
         generate_File(url, filename);
         FILE *out;
         out = fopen(filename, "w");
@@ -56,6 +62,7 @@ void read_Cache(char *filename, char *buf) {
 }
 void generate_File(char *url, char *filename) {
     int i = 0;
+    //根据url生成文件名
     while (i < MAX_FILE_NAME && *url != '\0') {
         if (*url != '/' && *url != ':' && *url != '.' && *url != '?') {
             *filename++ = *url;
@@ -67,7 +74,7 @@ void generate_File(char *url, char *filename) {
 }
 void Parse_Date(char *buffer, char *field, char *tempDate) {
     char *p, *ptr, temp[5];
-
+    // 获取时间戳
     const char *delim = "\r\n";
     ZeroMemory(temp, 5);
     p = strtok(buffer, delim);
