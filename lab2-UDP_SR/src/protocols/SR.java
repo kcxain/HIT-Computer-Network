@@ -11,12 +11,13 @@ import java.util.List;
 import static java.lang.Integer.valueOf;
 
 public class SR {
+    final int packetLoss = 5;
+
     private final InetAddress host;
     private final int targetPort;
     private final int sourcePort;
-    private final int WindowSize = 16;
+    private final int windowSize = 8;
     private long base = 0;
-    int Loss = 5;
 
     public SR(String host, int targetPort, int sourcePort) throws UnknownHostException {
         this.sourcePort = sourcePort;
@@ -32,7 +33,7 @@ public class SR {
         List<Integer> timers = new LinkedList<>();
         long nextseqNum = base;
         do {
-            while (timers.size() < WindowSize && sendIndex < content.length && nextseqNum < 256) {
+            while (timers.size() < windowSize && sendIndex < content.length && nextseqNum < 256) {
                 timers.add(0);
                 // 缓存当前数据
                 datagramBuffer.add(new ByteArrayOutputStream());
@@ -54,10 +55,10 @@ public class SR {
                 datagramBuffer.get((int) (nextseqNum - base)).write(content, sendIndex, length);
                 // 文件内容指针更新
                 sendIndex += length;
-                System.out.println("send the datagram : base " + base + " seq " + nextseqNum);
+                System.out.println("发送分组" + nextseqNum);
                 nextseqNum++;
             }
-            datagramSocket.setSoTimeout(1000);
+            datagramSocket.setSoTimeout(500);
             DatagramPacket receivePacket;
             try {
                 // 窗口中由分组未确认
@@ -67,6 +68,7 @@ public class SR {
                     datagramSocket.receive(receivePacket);
                     // 得到分组号
                     int ack = (int) ((recv[0] & 0x0FF) - base);
+                    System.out.println("收到ACK" + ack);
                     // 将对应分组设置为 -1
                     timers.set(ack, -1);
                 }
@@ -77,7 +79,7 @@ public class SR {
                         timers.set(i, timers.get(i) + 1);
                 }
             }
-            for (int i = 0; i < timers.size(); i++) { // update timer
+            for (int i = 0; i < timers.size(); i++) {
                 int sendMaxTime = 2;
                 // 计时器超过，则重新发送
                 if (timers.get(i) > sendMaxTime) {
@@ -93,7 +95,7 @@ public class SR {
 
                     DatagramPacket datagramPacket = new DatagramPacket(resender.toByteArray(), resender.size(), host, targetPort);
                     datagramSocket.send(datagramPacket);
-                    System.err.println("resend the datagram : base " + base + " seq " + (i + base));
+                    System.err.println("超时，重发分组" + (i + base));
                     timers.set(i, 0);
                 }
             }
@@ -129,9 +131,9 @@ public class SR {
         DatagramSocket datagramSocket = new DatagramSocket(sourcePort);
         List<ByteArrayOutputStream> datagramBuffer = new LinkedList<>();
         DatagramPacket receivePacket;
-        datagramSocket.setSoTimeout(1000);
+        datagramSocket.setSoTimeout(500);
         // 初始化窗口缓冲区
-        for (int i = 0; i < WindowSize; i++) {
+        for (int i = 0; i < windowSize; i++) {
             datagramBuffer.add(new ByteArrayOutputStream());
         }
         while (true) {
@@ -140,7 +142,7 @@ public class SR {
                 receivePacket = new DatagramPacket(recv, recv.length, host, targetPort);
                 datagramSocket.receive(receivePacket);
 
-                if (count % Loss != 0) {
+                if (count % packetLoss != 0) {
                     long base = recv[0] & 0x0FF;
                     long seq = recv[1] & 0x0FF;
                     if (receiveBase == -1)
@@ -162,21 +164,21 @@ public class SR {
                     ByteArrayOutputStream recvBytes = new ByteArrayOutputStream();
                     recvBytes.write(recv, 2, receivePacket.getLength() - 2);
                     datagramBuffer.set((int) (seq - base), recvBytes);
-                    // send ACK
+
                     recv = new byte[1];
                     recv[0] = valueOf((int) seq).byteValue();
                     receivePacket = new DatagramPacket(recv, recv.length, host, targetPort);
                     datagramSocket.send(receivePacket);
-                    System.out.println("receive datagram : base " + base + " seq " + seq);
+
+                    System.out.println("收到分组" + seq + " " + "发送ACK" + seq);
                 }
                 count++;
                 time = 0;
             } catch (IOException e) {
                 time++;
             }
-            // max time for one datagram
             int receiveMaxTime = 4;
-            if (time > receiveMaxTime) {  // check if the connect out of time
+            if (time > receiveMaxTime) {
                 ByteArrayOutputStream temp = getBytes(datagramBuffer, maxSeqNum + 1);
                 result.write(temp.toByteArray(), 0, temp.size());
                 break;
