@@ -1,13 +1,18 @@
 import protocols.SR;
 
 import java.io.*;
+import java.util.Scanner;
 
 public class Client {
     public static void main(String[] args) throws IOException, InterruptedException {
-        SR client = new SR("localhost", 7070, 8080);
+        SR client = new SR("localhost", 15000, 15213);
+
+        Scanner scan = new Scanner(System.in);
+        String fileName = scan.nextLine();
 
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        File txt4Client = new File("./src/txt4Client");
+
+        File txt4Client = new File("./src/" + fileName);
         FileInputStream fileInputStream = new FileInputStream(txt4Client);
         // 将文件读入输出流
         byte[] buffer = new byte[1024];

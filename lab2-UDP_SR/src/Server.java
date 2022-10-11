@@ -1,15 +1,22 @@
 import protocols.SR;
 
 import java.io.*;
+import java.util.Scanner;
 
 public class Server {
     public static void main(String[] args) throws IOException, InterruptedException {
-        SR server = new SR("localhost", 8080, 7070);
+        SR server = new SR("localhost", 15213, 15000);
+        System.out.println("服务器启动成功，端口号：" + 15000);
 
+
+        
         // 服务器先接收文件
-        File serverRecv = new File("./src/serverRecv");
+        Scanner scan = new Scanner(System.in);
+        String fileName = scan.nextLine();
+
+        File serverRecv = new File("./src/" + fileName);
         if(serverRecv.createNewFile()) {
-            System.out.println("Start to receive file 1.png from " + "localhost " + 8080);
+            System.out.println("开始接收文件： " + fileName);
         }
         while (true) {
             ByteArrayOutputStream byteArrayOutputStream = server.receive();
@@ -17,8 +24,7 @@ public class Server {
                 FileOutputStream fileOutputStream = new FileOutputStream(serverRecv);
                 fileOutputStream.write(byteArrayOutputStream.toByteArray(), 0, byteArrayOutputStream.size());
                 fileOutputStream.close();
-                System.out.println("Get the file ");
-                System.out.println("Saved as serverRecv");
+                System.out.println("文件接收完毕");
                 fileOutputStream.close();
                 break;
             }
