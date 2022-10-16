@@ -4,19 +4,26 @@ package protocols;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.*;
-import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
 import static java.lang.Integer.valueOf;
 
 public class SR {
-    final int packetLoss = 5;
-
+    // 模拟丢包，每packetLoss次丢包一次
+    final int packetLoss = 6;
+    // 主机名
     private final InetAddress host;
+    // 目标端口
     private final int targetPort;
+    // 本机端口
     private final int sourcePort;
+    // 窗口大小
     private final int windowSize = 8;
+    // 序号空间大小
+    final int MAX_SEQ = 256;
+    // 文件最大大小
+    final int MAX_LENGTH = 1024;
     private long base = 0;
 
     public SR(String host, int targetPort, int sourcePort) throws UnknownHostException {
@@ -25,28 +32,29 @@ public class SR {
         this.targetPort = targetPort;
     }
 
+
     public void send(byte[] content) throws IOException {
-        int sendIndex = 0, length;
-        final int MAX_LENGTH = 1024;
         DatagramSocket datagramSocket = new DatagramSocket(sourcePort);
+        // 内容缓冲区，保存分组
         List<ByteArrayOutputStream> datagramBuffer = new LinkedList<>();
+        // 计时器，为每一个分组计时
         List<Integer> timers = new LinkedList<>();
+        int sendIndex = 0;
+
+        // 初始时，nextseqNum = base
         long nextseqNum = base;
         do {
-            while (timers.size() < windowSize && sendIndex < content.length && nextseqNum < 256) {
-                timers.add(0);
+            while (timers.size() < windowSize && sendIndex < content.length && nextseqNum < MAX_SEQ) {
                 // 缓存当前数据
                 datagramBuffer.add(new ByteArrayOutputStream());
+                // 当前数据计时器置 0
+                timers.add(0);
                 // 数据帧长度
-                length = Math.min(content.length - sendIndex, MAX_LENGTH);
+                int length = Math.min(content.length - sendIndex, MAX_LENGTH);
                 ByteArrayOutputStream oneSend = new ByteArrayOutputStream();
-                //写入数据包
-                byte[] temp = new byte[1];
-                temp[0] = valueOf((int) base).byteValue();
-                oneSend.write(temp, 0, 1);
-                temp = new byte[1];
-                temp[0] = valueOf((int) nextseqNum).byteValue();
-                oneSend.write(temp, 0, 1);
+                //写入数据包 base + nextseqNum + content
+                writeByte(oneSend, (int)base);
+                writeByte(oneSend, (int)nextseqNum);
                 oneSend.write(content, sendIndex, length);
 
                 DatagramPacket datagramPacket = new DatagramPacket(oneSend.toByteArray(), oneSend.size(), host, targetPort);
@@ -55,20 +63,23 @@ public class SR {
                 datagramBuffer.get((int) (nextseqNum - base)).write(content, sendIndex, length);
                 // 文件内容指针更新
                 sendIndex += length;
-                System.out.println("发送分组" + nextseqNum);
+                System.out.println("发送分组" + nextseqNum + " base" + base);
+                // 序号++
                 nextseqNum++;
             }
+            // 设置延时等待
             datagramSocket.setSoTimeout(500);
             DatagramPacket receivePacket;
             try {
-                // 窗口中由分组未确认
+                // 窗口中由分组未确认，如果确认则设置为-1
                 while (!checkWindow(timers)) {
                     byte[] recv = new byte[1500];
                     receivePacket = new DatagramPacket(recv, recv.length);
                     datagramSocket.receive(receivePacket);
                     // 得到分组号
-                    int ack = (int) ((recv[0] & 0x0FF) - base);
-                    System.out.println("收到ACK" + ack);
+                    int oAck = (int)(recv[0]);
+                    int ack = (int) ((recv[0]) - base);
+                    System.out.println("收到ACK" + oAck);
                     // 将对应分组设置为 -1
                     timers.set(ack, -1);
                 }
@@ -84,22 +95,17 @@ public class SR {
                 // 计时器超过，则重新发送
                 if (timers.get(i) > sendMaxTime) {
                     ByteArrayOutputStream resender = new ByteArrayOutputStream();
-
-                    byte[] temp = new byte[1];
-                    temp[0] = valueOf((int) base).byteValue();
-                    resender.write(temp, 0, 1);
-                    temp = new byte[1];
-                    temp[0] = valueOf((int) (i + base)).byteValue();
-                    resender.write(temp, 0, 1);
+                    // 从缓存中发送
+                    writeByte(resender, (int)(base));
+                    writeByte(resender, (int)(i + base));
                     resender.write(datagramBuffer.get(i).toByteArray(), 0, datagramBuffer.get(i).size());
-
                     DatagramPacket datagramPacket = new DatagramPacket(resender.toByteArray(), resender.size(), host, targetPort);
                     datagramSocket.send(datagramPacket);
                     System.err.println("超时，重发分组" + (i + base));
                     timers.set(i, 0);
                 }
             }
-            // 当前面都被收到，则滑动窗口
+            // 当前面有收到的，则滑动窗口
             int i = 0, s = timers.size();
             while (i < s) {
                 if (timers.get(i) == -1) {
@@ -111,14 +117,12 @@ public class SR {
                     break;
                 }
             }
-            if (base >= 256) {
-                base = base - 256;
-                nextseqNum = nextseqNum - 256;
-            }
+            // 对序号空间求余
+            base %= MAX_SEQ;
+            nextseqNum %= MAX_SEQ;
         } while (sendIndex < content.length || timers.size() != 0);
         datagramSocket.close();
     }
-
 
     public ByteArrayOutputStream receive() throws IOException {
         // 接收数据帧个数
@@ -136,24 +140,27 @@ public class SR {
         for (int i = 0; i < windowSize; i++) {
             datagramBuffer.add(new ByteArrayOutputStream());
         }
+
         while (true) {
             try {
-                byte[] recv = new byte[1500];
+                // 接收数据
+                byte[] recv = new byte[MAX_LENGTH];
                 receivePacket = new DatagramPacket(recv, recv.length, host, targetPort);
                 datagramSocket.receive(receivePacket);
-
+                // 模拟丢包，当整除时不处理
                 if (count % packetLoss != 0) {
-                    long base = recv[0] & 0x0FF;
-                    long seq = recv[1] & 0x0FF;
+                    long base = recv[0];
+                    long seq = recv[1];
+                    // 先让接收窗口base置为发送窗口
                     if (receiveBase == -1)
                         receiveBase = base;
-
                     if (base != receiveBase) {
                         ByteArrayOutputStream temp = getBytes(datagramBuffer, (base - receiveBase) > 0 ? (base - receiveBase) : maxSeqNum + 1);
                         for (int i = 0; i < base - receiveBase; i++) {
                             datagramBuffer.remove(0);
                             datagramBuffer.add(new ByteArrayOutputStream());
                         }
+                        // 如果不等，交付
                         result.write(temp.toByteArray(), 0, temp.size());
                         maxSeqNum -= base - receiveBase;
                         receiveBase = base;
@@ -161,16 +168,17 @@ public class SR {
                     if (seq - base > maxSeqNum) {
                         maxSeqNum = seq - base;
                     }
+                    // 写入数据
                     ByteArrayOutputStream recvBytes = new ByteArrayOutputStream();
                     recvBytes.write(recv, 2, receivePacket.getLength() - 2);
                     datagramBuffer.set((int) (seq - base), recvBytes);
-
+                    // ACK 格式：seq
                     recv = new byte[1];
                     recv[0] = valueOf((int) seq).byteValue();
                     receivePacket = new DatagramPacket(recv, recv.length, host, targetPort);
                     datagramSocket.send(receivePacket);
 
-                    System.out.println("收到分组" + seq + " " + "发送ACK" + seq);
+                    System.out.println("收到分组" + seq + " " + "发送ACK" + seq + " base" + receiveBase);
                 }
                 count++;
                 time = 0;
@@ -196,12 +204,19 @@ public class SR {
         }
         return result;
     }
-
+    // 检查是否都设置为-1
     private boolean checkWindow(List<Integer> timers) {
         for (Integer timer : timers) {
             if (timer != -1)
                 return false;
         }
         return true;
+    }
+
+    // 构造byte数组
+    private void writeByte(ByteArrayOutputStream byteArrayOutputStream, int data) {
+        byte[] temp = new byte[1];
+        temp[0] = valueOf((int) data).byteValue();
+        byteArrayOutputStream.write(temp, 0, 1);
     }
 }
